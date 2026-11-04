@@ -1,6 +1,8 @@
 #!/bin/bash
 # Load the shared settings and helper functions
 source "$(dirname "$0")/dockerCommon.sh"
+source "$(dirname "$0")/../lib/checkRequirements.sh"   # shared check that the needed software is installed
+require_tools "Start Docker" docker flock systemctl sudo || exit 1   # stops with a clear message if something is missing
 # Allow only one Docker action at a time; a second click gets the live status window
 take_lock "Start Docker"; T0=$(date +%s)
 # The list of containers that Stop saved (empty if Stop was never used)
