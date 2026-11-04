@@ -1,0 +1,12 @@
+# Backup copies of scripts (kept locally, never published)
+*Backup*.sh
+*.bak
+*.orig
+# Logs and saved runtime state
+*.log
+*.tmp
+runningContainers.txt
+# Editor and system leftovers
+*~
+*.swp
+.DS_Store
