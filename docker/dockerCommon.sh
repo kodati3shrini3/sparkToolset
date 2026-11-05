@@ -3,6 +3,8 @@
 PROJECT="${SPARK_DOCKER_PROJECT:-ai-stack}"   # compose project name, taken from the environment if set, otherwise ai-stack
 COMPOSE_FILE="${SPARK_DOCKER_COMPOSE_FILE:-$HOME/AI-Stack/docker-compose.yaml}"   # compose file path, taken from the environment if set, otherwise under your home folder
 # Seconds each container may take to shut down gently before it is force-ended (Neo4j asks for 2 minutes)
+# Note: a container whose main process is a shell script without 'exec' never receives the stop signal,
+# so it always uses this whole time and is then force-ended; the fix belongs in that container's start script
 GRACE=120
 # Lock file of the two Docker icons (separate from the Kubernetes and vLLM lock) and the phase file written by Stop Docker (both cleared at reboot)
 LOCK="${XDG_RUNTIME_DIR:-/tmp}/docker-action.lock"
