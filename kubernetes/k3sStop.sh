@@ -46,7 +46,7 @@ ask_ok "$MSG" || { echo "Cancelled. Kubernetes keeps running."; sleep 3; exit 0;
 # Remember when the real work starts (for the real duration)
 T0=$(date +%s)
 # Ask for the administrator password once, in this window
-echo "=== Stopping Kubernetes gently ==="; echo "Your password is needed to stop the k3s service."
+echo "=== Stopping Kubernetes gently ==="; echo "Administrator rights are needed to stop the k3s service. You are asked for your password only if sudo does not remember it yet."
 sudo -v || { say "Password not accepted. Nothing was stopped."; exit 1; }
 # Phase 1: stop vLLM first (if it exists), so it stays off after the next start
 phase "1/5" "Stopping vLLM first (so it stays off after the next start)"
@@ -71,7 +71,7 @@ sudo /usr/local/bin/k3s-killall.sh > /tmp/k3s-killall.log 2>&1
 # Phase 5: verify that k3s and its containers are gone and that Docker is untouched
 phase "5/5" "Checking the result"
 LEFT=$(pgrep -fc "run/k3s/containerd" || true)
-echo "  k3s service: $(systemctl is-active k3s)   k3s containers left: ${LEFT:-0}   Docker containers still running: $(docker ps -q | wc -l)"
+echo "  k3s service: $(systemctl is-active k3s)   k3s containers left: ${LEFT:-0}   Docker containers still running: $(docker ps -q 2>/dev/null | wc -l)"
 if [ "${LEFT:-0}" = "0" ]; then
   # Remember how long this stop really took, for the comparison line in the live view
   record_duration "Stop Kubernetes" "$T0"
