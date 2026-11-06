@@ -11,6 +11,25 @@ need_k8s stop
 RUNNING=$(running_models)
 # If none is running, the GPU is already free
 [ -n "$RUNNING" ] || { say "No vLLM model is running (the GPU is free). Nothing to do."; exit 0; }
+# Several models running: choose which ones to stop, a notification follows each one (Step 109); with one model running the old code below runs unchanged
+if [ "$(echo "$RUNNING" | grep -c .)" -ge 2 ]; then   # otherwise the old code below runs unchanged
+  PICKED=$(pick_models stop) || { echo "Cancelled or nothing ticked. vLLM keeps running."; sleep 3; exit 0; }   # checklist of the running models, all pre-ticked
+  TXT=""; for R in $PICKED; do use_model "$R"; read RUN WAIT <<< "$(busy)"; TXT+="  - $R: requests running $RUN, waiting $WAIT"$'\n'; done   # request counts of the ticked models only
+  use_model "$(echo "$PICKED" | head -n 1)"; lock_model "$NS"   # show the first ticked model in the live status of a second click
+  ask_ok "vLLM is running (or starting) and may be in use.\n\nThis stops:\n$TXT\nModels you did not tick keep running.\n\nBefore stopping, check the applications that use it:\n  - Open WebUI chats\n  - any tool or script calling the vLLM API\n\nPress OK to stop, or Cancel to keep it running." || { echo "Cancelled. vLLM keeps running."; sleep 3; exit 0; }   # OK / Cancel warning
+  echo "=== Stopping vLLM ==="   # window heading
+  FAIL=0   # becomes 1 if one model does not stop in time
+  for R in $PICKED; do   # one ticked model at a time
+    lock_model "$R"   # live status follows the model being stopped now
+    if stop_model "$R"; then echo "=== STOPPED: $R is unloaded. Memory available now: $(mem_available) GiB ==="; notify_model "STOPPED - $R is unloaded"   # notification for this model
+    else FAIL=1; echo "=== $R is still stopping after 3 minutes ==="; notify_model "Stop is taking long: $R"; fi   # warning for this model
+  done
+  if [ "$FAIL" = "0" ]; then   # all ticked models are gone
+    echo "=== STOPPED: all selected models are unloaded ==="; notify_model "STOPPED - all selected models are unloaded"   # summary notification
+    for s in 5 4 3 2 1; do printf '\rClosing in %s s ' $s; sleep 1; done   # the window closes by itself after 5 seconds
+  else read -p "Press Enter to close"; fi   # keeps the window open so the state can be read
+  exit 0   # done; the old code below is not used
+fi
 # Build the list of running models with their current request counts
 TXT=""
 for R in $RUNNING; do use_model "$R"; read RUN WAIT <<< "$(busy)"; TXT+="  - $R: requests running $RUN, waiting $WAIT"$'\n'; done

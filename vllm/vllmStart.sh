@@ -9,6 +9,30 @@ take_lock "Start vLLM"
 need_k8s start
 # If no vLLM model is installed at all, say so and stop
 [ -n "$(list_models)" ] || { say "No vLLM model is installed in Kubernetes."; exit 1; }
+# Several GPU slots (time-slicing on) and several models installed: multi-select, the models start one after another (Step 108)
+if [ "$(slots_offered)" -ge 2 ] && [ "$(list_models | grep -c .)" -ge 2 ]; then   # in every other case the old single-choice code below runs unchanged
+  PICKED=$(pick_models start) || { echo "Cancelled or nothing ticked. Nothing was started."; sleep 3; exit 0; }   # checklist; Cancel changes nothing
+  TOSTART=""   # the models that really have to be started
+  for M in $PICKED; do   # one ticked model at a time
+    W=$(list_models | awk -v m="$M" '$1==m{print $3}')   # wanted pods of this model (1 or more means it is on already)
+    if [ "${W:-0}" -ge 1 ]; then echo "  $M is already on (running or starting): left alone"; else TOSTART+="$M "; fi   # a model that is on is never touched
+  done
+  [ -n "$TOSTART" ] || { say "The ticked models are already running. Nothing to do."; exit 0; }   # nothing new to start
+  WILLRUN=$( { running_models; for M in $TOSTART; do echo "$M"; done; } | awk '!s[$0]++')   # models that will run: already on plus new ones, no duplicates
+  [ "$(echo "$WILLRUN" | grep -c .)" -ge 2 ] && warn_resources $WILLRUN   # warning (OK only) when more than one model will run; nothing is stopped
+  for M in $TOSTART; do   # start one after another, in list order
+    if ! start_model_wait "$M"; then   # the start failed or the model was not ready after 15 minutes
+      echo "=== $M did NOT become ready. The next models were not started. ==="; notify_model "Start FAILED or timed out: $M"   # report and do not start the next ones
+      use_model "$M"; P=$(kubectl get pods -n $NS -l $LABEL --sort-by=.metadata.creationTimestamp -o name 2>/dev/null | tail -n 1)   # newest pod of the failed model
+      echo "Last log lines of $P:"; kubectl logs $P -n $NS --tail=15 2>&1 | cut -c1-160   # shows the reason
+      read -p "Press Enter to close"; exit 1   # keeps the window open so the error can be read
+    fi
+  done
+  echo "=== READY: all selected models are serving ==="   # final message
+  notify_model "READY - all selected models are serving: $TOSTART"   # one summary notification as well
+  for s in 8 7 6 5 4 3 2 1; do printf '\rClosing in %s s ' $s; sleep 1; done   # the window closes by itself after 8 seconds
+  exit 0   # done; the old single-model code below is not used
+fi
 # Let the user choose the model (no question if only one is installed)
 M=$(pick_model)
 # If nothing was chosen (Cancel), leave without changing anything
