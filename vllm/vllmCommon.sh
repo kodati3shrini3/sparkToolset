@@ -188,3 +188,119 @@ need_k8s() {
     say "Kubernetes is PAUSED (closed for new pods).\n\nClick the blue 'Start Kubernetes' icon to reopen it, then click 'Start vLLM' again."; exit 1
   fi
 }
+
+# ===== Multi-model support (Step 107, 2026-11-06): new functions only, the functions above are unchanged =====
+
+# slots_offered: number of GPU slots the cluster offers (2 or more means time-slicing is on); prints 1 when it cannot be read, which keeps the old one-model behaviour
+slots_offered() {
+  local N   # the number read from the node
+  N=$(kubectl --request-timeout=5s get node -o jsonpath='{.items[0].status.allocatable.nvidia\.com/gpu}' 2>/dev/null)   # allocatable GPU count of the node
+  [[ "$N" =~ ^[0-9]+$ ]] && echo "$N" || echo 1   # a plain number is used, anything else counts as 1 slot
+}
+
+# mem_available: memory that programs can still use, in GiB (the "available" column of free, not the "free" column)
+mem_available() { free -g | awk '/^Mem:/{print $7}'; }
+
+# model_state WANTED READY: print running, starting or stopped for one model (the numbers come from list_models)
+model_state() {
+  if [ "${1:-0}" -ge 1 ]; then   # at least one pod is wanted
+    [ "${2:-0}" -ge 1 ] && echo running || echo starting   # ready pods mean running, otherwise it is still loading
+  else echo stopped; fi   # no pod wanted
+}
+
+# model_mem NAMESPACE: print the vLLM memory setting of that model, for example 0.3 (nothing if unreadable); read from its deployment, so it also works while the model is stopped
+model_mem() {
+  kubectl --request-timeout=5s get deployment -n "$1" -l "$VLLM_SEL" -o json 2>/dev/null \
+    | jq -r '.items[0].spec.template.spec.containers[0] | ((.command // []) + (.args // [])) | join(" ")' 2>/dev/null \
+    | grep -oiE 'gpu[-_]memory[-_]utilization[= ]+"?[0-9.]+' | grep -oE '[0-9.]+$' | head -n 1   # only the number is kept, the rest of the command is never printed
+}
+
+# pick_models start|stop: checklist of the installed models (rows come from the cluster, so the count is always correct); prints the ticked namespaces one per line; fails when nothing is installed, nothing is ticked or the user cancels
+pick_models() {
+  local MODE="$1" ROWS COUNT SLOTS TXT OUT RC C x   # MODE is start or stop
+  ROWS=$(list_models); COUNT=$(echo "$ROWS" | grep -c .)   # one row per installed model, read from the cluster now
+  [ "$COUNT" = "0" ] && return 1   # nothing installed
+  SLOTS=$(slots_offered)   # GPU slots offered now
+  local ARGS=() NAMES=() N D R K ST TICK   # ARGS feeds the dialog, NAMES feeds the numbered fallback
+  while read -r N D R K; do   # one model at a time
+    ST=$(model_state "$R" "$K")   # running, starting or stopped
+    if [ "$MODE" = "stop" ]; then   # Stop mode
+      [ "$ST" = "stopped" ] && continue   # a stopped model cannot be stopped, so it is not offered
+      TICK=TRUE   # every running model is pre-ticked
+    else TICK=FALSE; fi   # Start mode: nothing is pre-ticked
+    ARGS+=("$TICK" "$N" "$ST"); NAMES+=("$N")   # remember this row
+  done <<< "$ROWS"
+  [ "${#NAMES[@]}" -gt 0 ] || return 1   # nothing to offer
+  if [ "$MODE" = "stop" ]; then TXT="Which models do you want to stop?\n\nTick the models to stop. The others keep running."   # question for Stop
+  else TXT="$COUNT models installed, $SLOTS GPU slots offered.\n\nTick the models to start. They start one after another.\nA model that is already running is left alone."; fi   # question for Start, with the live numbers
+  if command -v zenity >/dev/null 2>&1; then   # dialog available
+    OUT=$(zenity --list --checklist --title="${TITLE:-vLLM}" --width=$(dialog_width "${NAMES[@]}") --height=$(dialog_height "${#NAMES[@]}") --text="$TXT" --column="Pick" --column="Model" --column="State" --separator=" " "${ARGS[@]}" 2>/dev/null); RC=$?   # the ticked names come back on one line
+    [ "$RC" = "0" ] && [ -n "$OUT" ] && echo "$OUT" | tr ' ' '\n'   # one name per line; fails when cancelled or nothing ticked
+  else   # no dialog tool: numbered list in this window
+    printf '%b\n' "$TXT" >&2   # shows the question
+    for x in "${!NAMES[@]}"; do echo "  $((x+1))) ${NAMES[$x]}" >&2; done   # numbered list
+    read -p "Numbers separated by spaces (for example 1 2): " C   # reads the choice
+    for x in $C; do [[ "$x" =~ ^[0-9]+$ ]] && [ "$x" -ge 1 ] && [ "$x" -le "${#NAMES[@]}" ] && echo "${NAMES[$((x-1))]}"; done | awk '!seen[$0]++' | grep .   # valid numbers only, no duplicates; fails when nothing valid was typed
+  fi
+}
+
+# warn_resources NAMESPACE...: OK-only warning for the models that will run at the same time; nothing is stopped and the script continues afterwards
+warn_resources() {
+  local SLOTS TOT AVAIL N F EST TXT="" CNT=0 EXTRA=""   # live values and the text being built
+  SLOTS=$(slots_offered); TOT=$(free -g | awk '/^Mem:/{print $2}'); AVAIL=$(mem_available)   # slots, total memory and available memory now
+  for N in "$@"; do   # one line per model that will run
+    CNT=$((CNT+1)); F=$(model_mem "$N")   # count it and read its memory setting
+    if [ -n "$F" ]; then EST=$(awk -v f="$F" -v t="$TOT" 'BEGIN{printf "%.0f", f*t}'); TXT+="  - $N: memory setting $F, reserves about $EST GiB of $TOT GiB (estimate)"$'\n'   # setting times total memory
+    else TXT+="  - $N: memory need unknown"$'\n'; fi   # setting not readable
+  done
+  [ "$CNT" -gt "$SLOTS" ] && EXTRA="WARNING: $CNT models but only $SLOTS GPU slots. The extra models stay Pending (waiting) until a slot is free.\n\n"   # more models than slots
+  MSG="SEVERAL MODELS WILL RUN AT THE SAME TIME.\n\nGPU slots offered: $SLOTS\nModels that will run:\n$TXT\nMemory available now: $AVAIL GiB of $TOT GiB (CPU and GPU share it)\n\n${EXTRA}Limits:\n  - No memory isolation between the models: if memory runs out, the model that asks last fails.\n  - Ollama models in Docker use the same memory.\n\nNothing is stopped. Press OK to continue."   # the warning text (one OK button, no Cancel)
+  if command -v zenity >/dev/null 2>&1; then zenity --info --title="${TITLE:-vLLM}" --width=$(dialog_width "$@") --text="$MSG" 2>/dev/null   # dialog whose width follows the model names and whose height is automatic
+  else say "$MSG"; fi   # no dialog tool: same text through the old helper
+}
+
+# start_model_wait NAMESPACE: start that model (1 pod) and wait until it is ready (up to 15 minutes); returns 0 when ready, 1 when the start failed or timed out
+start_model_wait() {
+  use_model "$1"; lock_model "$1"   # look up the model and show it in the live status of a second click
+  echo "=== Starting vLLM: $NS (the model loads from disk) ==="   # window heading
+  notify-send "vLLM" "Starting $NS..."   # pop-up so you know the click was received
+  kubectl scale deployment/$DEP -n $NS --replicas=1 || return 1   # ask Kubernetes for 1 pod (safe to repeat)
+  local i READY POD STATE LAST   # loop variables
+  for i in $(seq 1 180); do   # check every 5 seconds for up to 15 minutes
+    READY=$(ready)   # ready pods of this model (empty means 0)
+    POD=$(kubectl get pods -n $NS -l $LABEL --sort-by=.metadata.creationTimestamp -o name 2>/dev/null | tail -n 1)   # newest pod
+    STATE=$(kubectl get $POD -n $NS --no-headers 2>/dev/null | awk '{print $2" "$3}')   # its state
+    LAST=$(kubectl logs $POD -n $NS --tail=1 2>/dev/null | cut -c1-90)   # its last log line
+    printf '[%s] %s ready=%s  pod=%s  %s\n' "$(date +%H:%M:%S)" "$NS" "${READY:-0}" "$STATE" "$LAST"   # one status line with the time
+    if [ "${READY:-0}" = "1" ]; then echo "=== READY: $NS is serving the model. Memory available now: $(mem_available) GiB ==="; notify_model "READY - $NS is being served"; return 0; fi   # ready: report and stop waiting
+    sleep 5   # wait before the next check
+  done
+  return 1   # not ready after 15 minutes
+}
+
+# dialog_width NAME...: window width in pixels from the longest name (at least 520, at most 1000)
+dialog_width() {
+  local L=0 N   # longest name so far
+  for N in "$@"; do [ "${#N}" -gt "$L" ] && L=${#N}; done   # finds the longest name
+  local W=$((L*9+330)); [ "$W" -lt 520 ] && W=520; [ "$W" -gt 1000 ] && W=1000   # characters to pixels, within the limits
+  echo "$W"   # prints the width
+}
+
+# dialog_height ROWS: window height in pixels for that many list rows, never taller than 85% of the screen (a scroll bar appears beyond that)
+dialog_height() {
+  local H=$((290+36*$1)) M   # title, text, column header and buttons (about 290 pixels) plus one line per row
+  M=$(xrandr --current 2>/dev/null | awk '/\*/{split($1,a,"x"); print a[2]; exit}')   # screen height in pixels
+  [[ "$M" =~ ^[0-9]+$ ]] || M=800   # unknown screen: assume 800
+  M=$((M*85/100)); [ "$H" -gt "$M" ] && H=$M   # keep the window on the screen
+  echo "$H"   # prints the height
+}
+
+# notify_model "message": desktop notification that closes by itself after 5 seconds, so the notifications of several models do not pile up
+notify_model() {
+  local ID   # number that the desktop gives to this notification
+  ID=$(notify-send -p -u normal -t 5000 -a "vLLM" "vLLM" "$1" 2>/dev/null)   # shows the notification and prints its number
+  if [[ "$ID" =~ ^[0-9]+$ ]] && command -v gdbus >/dev/null 2>&1; then   # the number is known and gdbus is available
+    setsid -f bash -c "sleep 5; gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications --method org.freedesktop.Notifications.CloseNotification $ID >/dev/null 2>&1" >/dev/null 2>&1   # removes it after 5 seconds, even if the window has closed by then
+  elif [ -z "$ID" ]; then notify-send -t 5000 -a "vLLM" "vLLM" "$1" 2>/dev/null   # old notify-send without the number option: plain notification
+  fi
+}
