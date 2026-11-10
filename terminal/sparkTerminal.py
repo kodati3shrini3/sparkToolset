@@ -2,7 +2,8 @@
 # sparkTerminal - a separate terminal program; it never changes GNOME Terminal or ~/.bashrc
 # Steps 121-124: per-tab settings (prompt, theme, text colour, font size) with live preview,
 # program defaults for new tabs (gear button), saved only in sparkTerminal's own config file,
-# close button on every tab (asks first when a program is still running in it), window icon
+# close button on every tab (asks first when a program is still running in it), window icon,
+# copy and paste (Ctrl+Shift+C / Ctrl+Shift+V and a right-click menu inside the terminal)
 # MIT License, copyright Kodati (see LICENSE in the repo root)
 
 import configparser  # read and write the program's own settings file
@@ -325,6 +326,7 @@ class SparkTerminalWindow(Gtk.Window):  # the main window of the program
         )  # end of the start command
 
         terminal.connect("child-exited", self.on_shell_exited, scroller)  # when bash ends (e.g. "exit"), close its tab
+        terminal.connect("button-press-event", self.on_terminal_clicked)  # right-click inside the terminal opens Copy/Paste/Select all
         self.show_all()  # make the new tab and its widgets visible
         self.notebook.set_current_page(self.notebook.page_num(scroller))  # switch to the new tab
         terminal.grab_focus()  # put the keyboard cursor in the terminal so you can type at once
@@ -429,6 +431,36 @@ class SparkTerminalWindow(Gtk.Window):  # the main window of the program
         self.defaults = result[1]  # new defaults (open tabs keep their own settings)
         save_defaults(self.defaults)  # save to ~/.config/sparkTerminal/settings.conf
 
+    def current_terminal(self):  # the terminal widget of the tab in front, or None
+        scroller = self.current_scroller()  # the tab in front
+        record = self.tabs.get(scroller) if scroller is not None else None  # its information
+        return record["terminal"] if record else None  # its terminal widget
+
+    def copy_text(self, terminal):  # copy the selected text to the clipboard
+        if terminal is not None and terminal.get_has_selection():  # only when some text is selected
+            terminal.copy_clipboard_format(Vte.Format.TEXT)  # put the selection on the clipboard as plain text
+
+    def paste_text(self, terminal):  # paste the clipboard into the terminal (as if typed)
+        if terminal is not None:  # a tab exists
+            terminal.paste_clipboard()  # VTE inserts the clipboard text at the prompt
+
+    def on_terminal_clicked(self, terminal, event):  # mouse click inside a terminal
+        if event.type != Gdk.EventType.BUTTON_PRESS or event.button != 3:  # only a single right-click
+            return False  # left/middle clicks keep their normal behaviour (select, middle-click paste)
+        menu = Gtk.Menu()  # small pop-up menu
+        copy_item = Gtk.MenuItem(label="Copy (Ctrl+Shift+C)")  # first entry
+        copy_item.set_sensitive(terminal.get_has_selection())  # greyed out when nothing is selected
+        copy_item.connect("activate", lambda _i: self.copy_text(terminal))  # copies the selection
+        paste_item = Gtk.MenuItem(label="Paste (Ctrl+Shift+V)")  # second entry
+        paste_item.connect("activate", lambda _i: self.paste_text(terminal))  # pastes the clipboard
+        select_item = Gtk.MenuItem(label="Select all")  # third entry
+        select_item.connect("activate", lambda _i: terminal.select_all())  # selects all text in this tab
+        for item in (copy_item, paste_item, select_item):  # every entry
+            menu.append(item)  # add it to the menu
+        menu.show_all()  # make the entries visible
+        menu.popup_at_pointer(event)  # show the menu where the mouse is
+        return True  # click handled (the terminal does not receive it)
+
     def on_key_press(self, _widget, event):  # keyboard shortcuts of the window
         ctrl_shift = Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK  # Ctrl and Shift held together
         if (event.state & ctrl_shift) == ctrl_shift:  # only react when both are held
@@ -438,6 +470,12 @@ class SparkTerminalWindow(Gtk.Window):  # the main window of the program
                 return True  # shortcut handled, not sent to the shell
             if key == "r":  # Ctrl+Shift+R
                 self.rename_tab()  # rename the tab in front
+                return True  # shortcut handled, not sent to the shell
+            if key == "c":  # Ctrl+Shift+C
+                self.copy_text(self.current_terminal())  # copy the selection of the tab in front
+                return True  # shortcut handled, not sent to the shell
+            if key == "v":  # Ctrl+Shift+V
+                self.paste_text(self.current_terminal())  # paste into the tab in front
                 return True  # shortcut handled, not sent to the shell
             if key == "w":  # Ctrl+Shift+W
                 scroller = self.current_scroller()  # the tab in front
