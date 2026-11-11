@@ -2,7 +2,7 @@
 # Load the shared settings, lock and message helpers
 SPARK_TOOLSET_ROOT="$(dirname "$(dirname "$(readlink -f "$0")")")"   # toolset root = folder above this script, so the scripts work wherever the toolset is placed
 source "$SPARK_TOOLSET_ROOT/vllm/vllmCommon.sh"   # shared vLLM helper functions, loaded from the vllm folder
-source "$SPARK_TOOLSET_ROOT/lib/checkRequirements.sh"   # shared check that the needed software is installed
+source "$SPARK_TOOLSET_ROOT/lib/checkRequiredProgramsAvailable.sh"   # shared check that the needed software is installed
 require_tools "Stop Kubernetes" kubectl jq curl flock systemctl sudo ss || exit 1   # stops with a clear message if something is missing
 # Window title of the dialogs
 TITLE="Kubernetes"

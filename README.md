@@ -20,10 +20,10 @@ Each program asks before it changes anything, shows progress, and closes cleanly
 
     git clone https://github.com/kodati3shrini3/sparkToolset.git
     cd sparkToolset
-    ./install.sh --dry-run     # shows what would be created, changes nothing
-    ./install.sh               # creates icons only for programs whose software is installed
+    ./installLaunchersMenuAndDesktop.sh --dry-run     # shows what would be created, changes nothing
+    ./installLaunchersMenuAndDesktop.sh               # creates icons only for programs whose software is installed
 
-`./install.sh --no-desktop` skips the Desktop icons, `./install.sh --remove` removes the icons it created. It only touches the launchers of this toolset.
+`./installLaunchersMenuAndDesktop.sh --no-desktop` skips the Desktop icons, `./installLaunchersMenuAndDesktop.sh --remove` removes the icons it created. It only touches the launchers of this toolset.
 
 ## sparkTerminal
 

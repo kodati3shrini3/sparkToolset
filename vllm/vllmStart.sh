@@ -1,7 +1,7 @@
 #!/bin/bash
 # Load the shared settings and helper functions
 source "$(dirname "$0")/vllmCommon.sh"
-source "$(dirname "$0")/../lib/checkRequirements.sh"   # shared check that the needed software is installed
+source "$(dirname "$0")/../lib/checkRequiredProgramsAvailable.sh"   # shared check that the needed software is installed
 require_tools "Start vLLM" kubectl jq curl flock systemctl || exit 1   # stops with a clear message if something is missing
 # Allow only one action at a time
 take_lock "Start vLLM"

@@ -54,6 +54,19 @@ TEXT_RGB = {  # text colour per theme; darker shades on the light theme so the t
     "dark": {"green": "#33cc33", "white": "#e6e6e6", "amber": "#ffb000", "cyan": "#00c8c8"},  # bright shades on black
     "light": {"green": "#1a7f1a", "white": "#202020", "amber": "#9a5b00", "cyan": "#007a7a"},  # dark shades on white
 }  # end of the table above
+PROMPT_COLOURS = [("auto", "Automatic (recommended)"), ("cyan", "Cyan"), ("yellow", "Yellow"), ("green", "Green"), ("magenta", "Magenta"), ("blue", "Blue"), ("white", "White (black on the light theme)")]  # prompt colour choices
+PROMPT_RGB = {  # prompt colour per theme; contrast measured: 8.8:1 or better on black, 7.4:1 or better on white
+    "dark": {"cyan": "#00e5ff", "yellow": "#ffe14d", "green": "#66ff66", "magenta": "#ff77ff", "blue": "#66aaff", "white": "#ffffff"},  # bright shades on black
+    "light": {"cyan": "#005f6b", "yellow": "#6b5000", "green": "#0f5f0f", "magenta": "#8b008b", "blue": "#0033cc", "white": "#000000"},  # dark shades on white
+}  # end of the table above
+AUTO_PROMPT = {  # what Automatic picks per text colour: a different colour family than the text, so prompt and output are easy to tell apart
+    "dark": {"white": "cyan", "green": "yellow", "amber": "cyan", "cyan": "yellow"},  # on the dark theme
+    "light": {"white": "blue", "green": "magenta", "amber": "blue", "cyan": "magenta"},  # on the light theme
+}  # end of the table above
+PALETTES = {  # the 16 standard terminal colours per theme (black, red, green, yellow, blue, magenta, cyan, white, then the bright versions); contrast measured: 4.6:1 or better on black, 5.1:1 or better on white
+    "dark": ["#767676", "#ff6b6b", "#4ee04e", "#e6c200", "#6aa7ff", "#d87bff", "#34d6d6", "#d3d7cf", "#9a9a9a", "#ff8a8a", "#8ae234", "#fce94f", "#8fbcff", "#e6a0ff", "#6ae8e8", "#ffffff"],  # light shades on black (the default dark blue was only 2.2:1)
+    "light": ["#000000", "#b3001b", "#1a7f1a", "#7a5800", "#0033cc", "#8b008b", "#006b7a", "#555555", "#444444", "#cc0000", "#237a00", "#8a5a00", "#0044ff", "#a000a0", "#007a85", "#1a1a1a"],  # dark shades on white
+}  # end of the table above
 FONT_SIZES = ["medium", "large"]  # only two sizes, as agreed (large = medium x 1.25)
 
 BUILT_IN_DEFAULTS = {  # defaults agreed with the user; used when no settings file exists or Reset is pressed
@@ -61,6 +74,7 @@ BUILT_IN_DEFAULTS = {  # defaults agreed with the user; used when no settings fi
     "system_name": "yes",  # always prefix with user@system
     "theme": "dark",  # dark theme
     "text_colour": "green",  # green text
+    "prompt_colour": "auto",  # automatic: bold colour chosen from the theme and the text colour
     "font_size": "medium",  # system monospace size
 }  # end of the table above
 
@@ -94,6 +108,18 @@ def effective_theme(settings):  # "dark" or "light" after resolving Auto
     return settings["theme"]  # Dark or Light as chosen
 
 
+def prompt_colour_name(settings):  # name of the prompt colour after resolving Automatic
+    name = settings["prompt_colour"]  # chosen colour or "auto"
+    if name == "auto":  # Automatic depends on the theme and the text colour
+        return AUTO_PROMPT[effective_theme(settings)][settings["text_colour"]]  # contrasting colour family
+    return name  # colour chosen by the user
+
+
+def prompt_rgb(settings):  # the prompt colour as "r;g;b" numbers for a terminal colour code
+    hexcolour = PROMPT_RGB[effective_theme(settings)][prompt_colour_name(settings)]  # e.g. "#00e5ff"
+    return ";".join(str(int(hexcolour[i:i + 2], 16)) for i in (1, 3, 5))  # e.g. "0;229;255"
+
+
 def build_ps1(settings):  # bash prompt text (PS1) for the chosen style
     style = settings["prompt_style"]  # chosen prompt style
     ps1 = ""  # start empty
@@ -103,7 +129,9 @@ def build_ps1(settings):  # bash prompt text (PS1) for the chosen style
         ps1 += "\\u@\\h"  # user@host, e.g. alice@myhost
     if style != "bare":  # every style except "prompt only" shows the folder
         ps1 += (":" if settings["system_name"] == "yes" else "") + "\\w"  # current folder, ~ for home
-    return ps1 + "\\$ "  # $ for a normal user, # for root, then a space
+    start = "\\[\\e[1;38;2;" + prompt_rgb(settings) + "m\\]"  # bold plus exact colour; \[ and \] tell bash these characters take no room on the line
+    end = "\\[\\e[0m\\]"  # back to the normal text colour for what you type
+    return start + ps1 + "\\$" + end + " "  # coloured prompt ($ for a normal user, # for root), colour reset, then a space
 
 
 def sample_prompt(settings):  # the same prompt as plain text, for the live preview
@@ -115,7 +143,7 @@ def sample_prompt(settings):  # the same prompt as plain text, for the live prev
         text += getpass.getuser() + "@" + socket.gethostname().split(".")[0]  # real user and short host name (like \u@\h)
     if style != "bare":  # every style except "prompt only" shows the folder
         text += (":" if settings["system_name"] == "yes" else "") + "~/sparkToolset"  # example folder
-    return text + "$ ls"  # prompt sign and an example command
+    return "\x1b[1;38;2;" + prompt_rgb(settings) + "m" + text + "$\x1b[0m ls"  # bold coloured prompt, colour reset, then the example command in the text colour
 
 
 def load_defaults():  # program defaults from the settings file, checked against the allowed values
@@ -128,6 +156,7 @@ def load_defaults():  # program defaults from the settings file, checked against
             "system_name": ["yes", "no"],  # on or off
             "theme": [v for v, _ in THEMES],  # dark, light, auto
             "text_colour": [v for v, _ in TEXT_COLOURS],  # four colours
+            "prompt_colour": [v for v, _ in PROMPT_COLOURS],  # automatic or one of six colours
             "font_size": FONT_SIZES,  # medium, large
         }  # end of the table above
         for key, options in allowed.items():  # check every key
@@ -151,8 +180,12 @@ def apply_look(terminal, settings):  # colours and font of one terminal widget (
     foreground.parse(TEXT_RGB[theme][settings["text_colour"]])  # chosen text colour for this theme
     background = Gdk.RGBA()  # background colour object
     background.parse(BACKGROUNDS[theme])  # black or white
-    terminal.set_color_foreground(foreground)  # set the text colour
-    terminal.set_color_background(background)  # set the background colour
+    palette = []  # the 16 standard colours for this theme
+    for hexcolour in PALETTES[theme]:  # one entry per colour
+        colour = Gdk.RGBA()  # colour object
+        colour.parse(hexcolour)  # e.g. "#6aa7ff"
+        palette.append(colour)  # add it to the list
+    terminal.set_colors(foreground, background, palette)  # text colour, background and the 16 standard colours (ls directories, errors) in one call
     desc = system_font()  # start from the system monospace font
     desc.set_size(int(font_points(settings["font_size"]) * Pango.SCALE))  # medium or large size
     terminal.set_font(desc)  # set the font of this terminal only
@@ -230,6 +263,7 @@ class SparkTerminalWindow(Gtk.Window):  # the main window of the program
         row += 1  # next row
         theme_box = combo("Theme", THEMES, settings["theme"])  # theme list
         colour_box = combo("Text colour", TEXT_COLOURS, settings["text_colour"])  # text colour list
+        prompt_colour_box = combo("Prompt colour", PROMPT_COLOURS, settings["prompt_colour"])  # prompt colour list
         sizes = [(s, f"{s.capitalize()} ({font_points(s):g} pt)") for s in FONT_SIZES]  # "Medium (12 pt)", "Large (15 pt)"
         size_box = combo("Font size", sizes, settings["font_size"])  # font size list
 
@@ -246,6 +280,7 @@ class SparkTerminalWindow(Gtk.Window):  # the main window of the program
                 "system_name": "yes" if system_check.get_active() else "no",  # switch state
                 "theme": theme_box.get_active_id(),  # chosen theme
                 "text_colour": colour_box.get_active_id(),  # chosen colour
+                "prompt_colour": prompt_colour_box.get_active_id(),  # chosen prompt colour
                 "font_size": size_box.get_active_id(),  # chosen size
             }  # end of the table above
 
@@ -260,9 +295,10 @@ class SparkTerminalWindow(Gtk.Window):  # the main window of the program
             system_check.set_active(values["system_name"] == "yes")  # switch
             theme_box.set_active_id(values["theme"])  # theme
             colour_box.set_active_id(values["text_colour"])  # colour
+            prompt_colour_box.set_active_id(values["prompt_colour"])  # prompt colour
             size_box.set_active_id(values["font_size"])  # size
 
-        for widget in (prompt_box, theme_box, colour_box, size_box):  # every drop-down list
+        for widget in (prompt_box, theme_box, colour_box, prompt_colour_box, size_box):  # every drop-down list
             widget.connect("changed", refresh)  # refresh the preview on change
         system_check.connect("toggled", refresh)  # refresh the preview when the switch changes
 
