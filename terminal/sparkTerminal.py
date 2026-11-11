@@ -67,6 +67,8 @@ PALETTES = {  # the 16 standard terminal colours per theme (black, red, green, y
     "dark": ["#767676", "#ff6b6b", "#4ee04e", "#e6c200", "#6aa7ff", "#d87bff", "#34d6d6", "#d3d7cf", "#9a9a9a", "#ff8a8a", "#8ae234", "#fce94f", "#8fbcff", "#e6a0ff", "#6ae8e8", "#ffffff"],  # light shades on black (the default dark blue was only 2.2:1)
     "light": ["#000000", "#b3001b", "#1a7f1a", "#7a5800", "#0033cc", "#8b008b", "#006b7a", "#555555", "#444444", "#cc0000", "#237a00", "#8a5a00", "#0044ff", "#a000a0", "#007a85", "#1a1a1a"],  # dark shades on white
 }  # end of the table above
+SCROLLBACK_LINES = 100000  # lines of history per tab (also the most output rows one command can keep for copying)
+MAX_COPY_BYTES = 1000000  # a command's result larger than this (1 MB) is cut at a line end when copied to the clipboard
 FONT_SIZES = ["medium", "large"]  # only two sizes, as agreed (large = medium x 1.25)
 
 BUILT_IN_DEFAULTS = {  # defaults agreed with the user; used when no settings file exists or Reset is pressed
@@ -76,6 +78,7 @@ BUILT_IN_DEFAULTS = {  # defaults agreed with the user; used when no settings fi
     "text_colour": "green",  # green text
     "prompt_colour": "auto",  # automatic: bold colour chosen from the theme and the text colour
     "font_size": "medium",  # system monospace size
+    "copy_result": "no",  # do not copy command results to the clipboard unless switched on
 }  # end of the table above
 
 
@@ -158,6 +161,7 @@ def load_defaults():  # program defaults from the settings file, checked against
             "text_colour": [v for v, _ in TEXT_COLOURS],  # four colours
             "prompt_colour": [v for v, _ in PROMPT_COLOURS],  # automatic or one of six colours
             "font_size": FONT_SIZES,  # medium, large
+            "copy_result": ["yes", "no"],  # on or off
         }  # end of the table above
         for key, options in allowed.items():  # check every key
             value = parser.get("defaults", key, fallback=values[key])  # value from the file, or the default
@@ -266,6 +270,12 @@ class SparkTerminalWindow(Gtk.Window):  # the main window of the program
         prompt_colour_box = combo("Prompt colour", PROMPT_COLOURS, settings["prompt_colour"])  # prompt colour list
         sizes = [(s, f"{s.capitalize()} ({font_points(s):g} pt)") for s in FONT_SIZES]  # "Medium (12 pt)", "Large (15 pt)"
         size_box = combo("Font size", sizes, settings["font_size"])  # font size list
+        copy_check = None  # the copy switch exists only in the program defaults dialog (gear button), not for single tabs
+        if name is None:  # only the gear dialog has no tab name field
+            copy_check = Gtk.CheckButton(label="Copy the result of each command to the clipboard (all tabs)")  # copy switch for the whole application
+            copy_check.set_active(settings["copy_result"] == "yes")  # current state
+            grid.attach(copy_check, 1, row, 1, 1)  # under the font size list
+            row += 1  # next row
 
         grid.attach(Gtk.Label(label="Preview (before Apply)", xalign=0), 0, row, 2, 1)  # preview heading
         row += 1  # next row
@@ -282,6 +292,7 @@ class SparkTerminalWindow(Gtk.Window):  # the main window of the program
                 "text_colour": colour_box.get_active_id(),  # chosen colour
                 "prompt_colour": prompt_colour_box.get_active_id(),  # chosen prompt colour
                 "font_size": size_box.get_active_id(),  # chosen size
+                "copy_result": ("yes" if copy_check.get_active() else "no") if copy_check is not None else settings["copy_result"],  # copy switch state (a tab dialog keeps the value unchanged)
             }  # end of the table above
 
         def refresh(*_args):  # redraw the preview after any change
@@ -297,6 +308,8 @@ class SparkTerminalWindow(Gtk.Window):  # the main window of the program
             colour_box.set_active_id(values["text_colour"])  # colour
             prompt_colour_box.set_active_id(values["prompt_colour"])  # prompt colour
             size_box.set_active_id(values["font_size"])  # size
+            if copy_check is not None:  # only the defaults dialog has the switch
+                copy_check.set_active(values["copy_result"] == "yes")  # copy switch
 
         for widget in (prompt_box, theme_box, colour_box, prompt_colour_box, size_box):  # every drop-down list
             widget.connect("changed", refresh)  # refresh the preview on change
@@ -339,15 +352,17 @@ class SparkTerminalWindow(Gtk.Window):  # the main window of the program
             handle.write('  esac\n')  # end of the check
             handle.write('done; unset __sparkKey; export LS_COLORS\n')  # only this tab's shell gets the changed colours
             handle.write(f'__sparkPrompt() {{ [ -r "{prompt_file}" ] && . "{prompt_file}"; }}\n')  # function that loads this tab's prompt
-            handle.write('PROMPT_COMMAND="__sparkPrompt${PROMPT_COMMAND:+; $PROMPT_COMMAND}"\n')  # run it before every prompt, keeping any existing PROMPT_COMMAND
+            handle.write('__sparkN=0\n')  # counter, so the end mark changes the terminal title every time
+            handle.write(r"""__sparkMark() { local p=${PS1@P}; while [[ $p == *$'\e['*m* ]]; do p=${p%%$'\e['*}${p#*$'\e['*m}; done; __sparkN=$((__sparkN+1)); printf '\033]0;sparkTerminal:%s:%s\007' "$__sparkN" "${#p}"; }""" + "\n")  # prints the end mark "sparkTerminal:<counter>:<visible prompt width>" (colour codes are not counted)
+            handle.write('PROMPT_COMMAND="__sparkPrompt${PROMPT_COMMAND:+; $PROMPT_COMMAND}; __sparkMark"\n')  # run it before every prompt, keeping any existing PROMPT_COMMAND; the mark comes last, right before the prompt is drawn
 
         terminal = Vte.Terminal()  # a new terminal widget for this tab
-        terminal.set_scrollback_lines(10000)  # keep 10000 lines of history to scroll back
+        terminal.set_scrollback_lines(SCROLLBACK_LINES)  # keep 100000 lines of history to scroll back and to copy results from
         scroller = Gtk.ScrolledWindow()  # adds a scroll bar next to the terminal
         scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)  # vertical scroll bar only, when needed
         scroller.add(terminal)  # put the terminal inside the scroll area
 
-        record = {"terminal": terminal, "settings": settings, "prompt_file": prompt_file, "rc_file": rc_file, "pid": None}  # everything about this tab (pid filled in when bash starts)
+        record = {"terminal": terminal, "settings": settings, "prompt_file": prompt_file, "rc_file": rc_file, "pid": None, "copy_start": None, "ready": False}  # everything about this tab (pid filled in when bash starts; copy_start = row where the running command's output starts; ready = first prompt seen)
         self.tabs[scroller] = record  # remember it
         self.write_prompt_file(record)  # write the tab's prompt before the shell starts
         apply_look(terminal, settings)  # colours and font of this tab
@@ -369,11 +384,62 @@ class SparkTerminalWindow(Gtk.Window):  # the main window of the program
             record,  # this tab's information, passed to that function
         )  # end of the start command
 
+        terminal.connect("commit", self.on_commit, record)  # a key press is about to be sent to bash (used to find where a command's output starts)
+        terminal.connect("window-title-changed", self.on_title_mark, record)  # the shell's end-of-output mark arrives as a title change
         terminal.connect("child-exited", self.on_shell_exited, scroller)  # when bash ends (e.g. "exit"), close its tab
         terminal.connect("button-press-event", self.on_terminal_clicked)  # right-click inside the terminal opens Copy/Paste/Select all
         self.show_all()  # make the new tab and its widgets visible
         self.notebook.set_current_page(self.notebook.page_num(scroller))  # switch to the new tab
         terminal.grab_focus()  # put the keyboard cursor in the terminal so you can type at once
+
+    def on_commit(self, terminal, text, _size, record):  # a key press is about to go to bash
+        if text == "\r" and record["ready"] and record["copy_start"] is None:  # one Enter press while the shell waits at its prompt (not a paste, not a key typed into a running program)
+            _col, row = terminal.get_cursor_position()  # the cursor is on the command line (row is absolute)
+            record["copy_start"] = row + 1  # the output of the command starts on the next row
+
+    def on_title_mark(self, terminal, record):  # the shell printed its end-of-output mark (title "sparkTerminal:<counter>:<prompt width>")
+        try:  # a problem here must never disturb the terminal
+            parts = (terminal.get_window_title() or "").split(":")  # ["sparkTerminal", counter, width]
+            if len(parts) != 3 or parts[0] != "sparkTerminal" or not parts[2].isdigit():  # not our mark
+                return  # ignore other titles
+            record["ready"] = True  # the shell has shown its first prompt
+            start = record["copy_start"]  # row where the finished command's output started (None at the first prompt)
+            record["copy_start"] = None  # the shell is at its prompt again
+            if start is None or self.defaults.get("copy_result") != "yes":  # nothing to copy, or the application-wide switch is off
+                return  # leave the clipboard alone
+            col, row = terminal.get_cursor_position()  # the cursor is behind the new prompt
+            end_col = max(col - int(parts[2]), 0)  # cut the prompt off: the output ends where the prompt starts
+            if row < start or (row == start and end_col == 0):  # no output rows at all (empty Enter, command without output)
+                return  # leave the clipboard alone
+            result = terminal.get_text_range_format(Vte.Format.TEXT, start, 0, row, end_col)  # plain text (no colour codes) of the output rows
+            text = result[0] if isinstance(result, tuple) else result  # keep only the text
+            text = (text or "").rstrip("\n")  # no trailing empty lines
+            if not text.strip():  # empty result (for example a full-screen program)
+                return  # leave the clipboard alone
+            note = ""  # extra words for the window title
+            if len(text.encode("utf-8")) > MAX_COPY_BYTES:  # too big: keep the beginning, cut at a line end
+                kept = text.encode("utf-8")[:MAX_COPY_BYTES].decode("utf-8", errors="ignore")  # first 1 MB (a half character at the end is dropped)
+                kept = kept[:kept.rfind("\n")] if "\n" in kept else kept  # end at a whole line
+                note += f", {text.count(chr(10)) - kept.count(chr(10))} lines left out (limit {MAX_COPY_BYTES // 1000000} MB)"  # how many lines did not fit
+                text = kept  # copy only the kept part
+            if row - start >= SCROLLBACK_LINES:  # more rows than the history holds
+                note += ", the beginning scrolled out of the history"  # tell the user
+            Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).set_text(text, -1)  # replace the clipboard with this command's result
+            count = text.count("\n") + 1  # number of lines copied
+            self.show_copy_notice(f"copied {count} line{'' if count == 1 else 's'}{note}")  # short notice in the title bar
+        except Exception:  # never let the copy feature break the terminal
+            pass  # ignore the problem
+
+    def show_copy_notice(self, message):  # show a short notice in the window title, then restore the normal title
+        self.set_title(APP_TITLE + " - " + message)  # notice in the title bar
+        self.copy_notice_id = getattr(self, "copy_notice_id", 0) + 1  # a newer notice replaces an older one
+        notice_id = self.copy_notice_id  # remember which notice this is
+
+        def restore():  # runs once after 3 seconds
+            if notice_id == self.copy_notice_id:  # only if no newer notice has appeared
+                self.set_title(APP_TITLE)  # back to the normal title
+            return False  # do not repeat
+        GLib.timeout_add_seconds(3, restore)  # schedule it
 
     def on_shell_started(self, _terminal, pid, _error, record):  # bash has started (or failed to start)
         if pid and pid > 0:  # a real process number
