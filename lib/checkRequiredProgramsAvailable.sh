@@ -1,5 +1,5 @@
 #!/bin/bash
-# checkRequirements.sh: shared check that the software a sparkToolset program needs is installed (sourced by the programs, not run on its own)
+# checkRequiredProgramsAvailable.sh: shared check that the software a sparkToolset program needs is installed (sourced by the programs, not run on its own)
 
 # hint_for TOOL: prints how to install a missing tool (apt package on Ubuntu / DGX OS, or the official page)
 hint_for() {

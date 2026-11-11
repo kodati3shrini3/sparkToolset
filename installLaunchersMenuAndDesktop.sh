@@ -1,6 +1,6 @@
 #!/bin/bash
-# install.sh: creates start/stop icons (desktop launchers) for the sparkToolset programs whose software is installed
-# usage: install.sh [--dry-run] [--no-desktop] [--remove]
+# installLaunchersMenuAndDesktop.sh: creates start/stop icons (desktop launchers) for the sparkToolset programs whose software is installed
+# usage: installLaunchersMenuAndDesktop.sh [--dry-run] [--no-desktop] [--remove]
 
 ROOT="$(dirname "$(readlink -f "$0")")"   # folder that holds this script = toolset root, so the paths work wherever the toolset lives
 DRY=no; DESK=yes; REMOVE=no   # defaults: really install, and also place icons on the Desktop
