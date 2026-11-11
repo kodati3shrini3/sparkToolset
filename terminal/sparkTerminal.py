@@ -4,6 +4,7 @@
 # program defaults for new tabs (gear button), saved only in sparkTerminal's own config file,
 # close button on every tab (asks first when a program is still running in it), window icon,
 # copy and paste (Ctrl+Shift+C / Ctrl+Shift+V and a right-click menu inside the terminal)
+# directories shown bold and italic by ls and other LS_COLORS tools (only inside sparkTerminal)
 # MIT License, copyright Kodati (see LICENSE in the repo root)
 
 import configparser  # read and write the program's own settings file
@@ -294,6 +295,13 @@ class SparkTerminalWindow(Gtk.Window):  # the main window of the program
         rc_file = os.path.join(RUNTIME_DIR, f"tab{tab_id}.rc")  # startup file for this tab's shell
         with open(rc_file, "w", encoding="utf-8") as handle:  # write the startup file (private folder, not your home files)
             handle.write('[ -f "$HOME/.bashrc" ] && . "$HOME/.bashrc"\n')  # first load your normal ~/.bashrc unchanged (read only)
+            handle.write('[ -n "$LS_COLORS" ] || eval "$(dircolors -b 2>/dev/null)"\n')  # make sure ls colours exist (system defaults if ~/.bashrc set none)
+            handle.write('for __sparkKey in di ow tw st; do\n')  # directory types: normal, other-writable, sticky+other-writable, sticky
+            handle.write('  case ":$LS_COLORS:" in\n')  # does this directory type already have a colour?
+            handle.write('    *":$__sparkKey="*) LS_COLORS=$(printf "%s" "$LS_COLORS" | sed -E "s/(^|:)($__sparkKey)=([^:]*)/\\1\\2=\\3;01;03/") ;;\n')  # yes: add bold (01) and italic (03) to its existing colour
+            handle.write('    *) [ "$__sparkKey" = di ] && LS_COLORS="di=01;03;34:$LS_COLORS" ;;\n')  # no colour for normal directories: bold italic blue
+            handle.write('  esac\n')  # end of the check
+            handle.write('done; unset __sparkKey; export LS_COLORS\n')  # only this tab's shell gets the changed colours
             handle.write(f'__sparkPrompt() {{ [ -r "{prompt_file}" ] && . "{prompt_file}"; }}\n')  # function that loads this tab's prompt
             handle.write('PROMPT_COMMAND="__sparkPrompt${PROMPT_COMMAND:+; $PROMPT_COMMAND}"\n')  # run it before every prompt, keeping any existing PROMPT_COMMAND
 
