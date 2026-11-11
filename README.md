@@ -13,7 +13,7 @@ Each program asks before it changes anything, shows progress, and closes cleanly
 | `kubernetes/` | Start Kubernetes, Stop Kubernetes | Starts k3s, or drains the node and stops k3s gently (stops vLLM first) |
 | `grafana/` | Open Grafana | Opens a tunnel to Grafana in k3s and shows the page |
 | `docker/` | Start Docker, Stop Docker | Stops all running containers gently and the Docker service; Start brings the saved containers back |
-| `terminal/` | sparkTerminal | A separate terminal window with named tabs and per-tab prompt, theme, colour and font settings (see below) |
+| separate repository: [terminal4Spark](https://github.com/kodati3shrini3/terminal4Spark) | sparkTerminal | A separate terminal window with named tabs, per-tab prompt settings and an optional copy of each command result. Installed on its own (see below) |
 | `lib/` | Shared check | Each program checks that the software it needs is installed and says what is missing |
 
 ## Install
@@ -25,21 +25,16 @@ Each program asks before it changes anything, shows progress, and closes cleanly
 
 `./installLaunchersMenuAndDesktop.sh --no-desktop` skips the Desktop icons, `./installLaunchersMenuAndDesktop.sh --remove` removes the icons it created. It only touches the launchers of this toolset.
 
-## sparkTerminal
+## sparkTerminal (separate repository)
 
-A separate terminal program (Python, GTK 3 and the VTE terminal widget). It does not change GNOME Terminal, its profiles or `~/.bashrc`: each tab's shell reads `~/.bashrc` and then applies that tab's prompt.
+sparkTerminal is a terminal window with named tabs, a readable prompt for each tab and an optional copy of each command result to the clipboard. It now lives in its own repository, [terminal4Spark](https://github.com/kodati3shrini3/terminal4Spark), with its own install and uninstall scripts and its own README.
 
-| Feature | How |
-|---|---|
-| Tabs | "+" or Ctrl+Shift+T asks for a name; double-click or Ctrl+Shift+R renames; × or Ctrl+Shift+W closes (asks first if a program is still running) |
-| Per-tab settings | Prompt style (7 choices, optional user@system prefix), theme (dark, light, auto), text colour (green, white, amber, cyan), font size (medium, large), with a live preview; right-click a tab for "Tab settings…" |
-| Defaults for new tabs | Gear button; saved in `~/.config/sparkTerminal/settings.conf` |
+    git clone https://github.com/kodati3shrini3/terminal4Spark.git
+    cd terminal4Spark
+    ./installSparkTerminal.sh --dry-run    # shows what would be done, changes nothing
+    ./installSparkTerminal.sh              # asks for a folder, then creates a Desktop icon and a menu entry
 
-    terminal/installSparkTerminal.sh --dry-run   # shows what would be done, changes nothing
-    terminal/installSparkTerminal.sh             # asks for a folder, copies the program, creates a Desktop icon and a menu entry
-    terminal/uninstallSparkTerminal.sh           # moves the installed files and both launchers to the Trash (settings are kept)
-
-Needs `python3`, `python3-gi`, `gir1.2-gtk-3.0` and `gir1.2-vte-2.91`; the installer checks them and never installs packages or uses `sudo`. The uninstaller is also copied into the installed folder.
+It is not installed by `installLaunchersMenuAndDesktop.sh`, and the other programs here do not need it.
 
 ## What it assumes
 
@@ -52,7 +47,7 @@ Needs `python3`, `python3-gi`, `gir1.2-gtk-3.0` and `gir1.2-vte-2.91`; the insta
 
 ## Tested on
 
-NVIDIA DGX Spark (GB10, ARM64), DGX OS (Ubuntu 24.04), k3s. The vLLM, Kubernetes and Grafana programs are tested most. The Docker programs are less tested. sparkTerminal is tested with GNOME on the same system.
+NVIDIA DGX Spark (GB10, ARM64), DGX OS (Ubuntu 24.04), k3s. The vLLM, Kubernetes and Grafana programs are tested most. The Docker programs are less tested.
 
 ## Warning
 
