@@ -6,11 +6,11 @@ Clickable Start and Stop icons for the AI services on an NVIDIA DGX Spark: Docke
 
 ## Words used here
 
-| Word | What it means | Example on this machine |
+| Word | What it means | Example |
 |---|---|---|
 | Docker | Runs programs in containers (a container is a program packed with its own settings). You start and stop them yourself. | A database or a chat web page in a container |
 | Kubernetes (k3s) | A manager that starts, watches and restarts containers for you. k3s is a small, lightweight version. | The manager that runs your AI models |
-| vLLM | A program that loads an AI model and answers questions sent to it | One vLLM per model, for example a medical language model |
+| vLLM | A program that loads an AI model and answers questions sent to it | One vLLM per model, for example one for a chat model |
 | Grafana | A web page with charts about how the machine and the cluster are doing | The page the Open Grafana icon shows |
 | Tunnel | A temporary private connection from a port on this computer to a service inside Kubernetes | Opens Grafana, which lives inside Kubernetes |
 
@@ -29,7 +29,9 @@ The icons appear in the application menu and on the Desktop. Stop Docker and Sto
 
 ## Before you start
 
-You need these programs. The installer and each icon check for them and tell you what is missing. They never install anything for you.
+The toolset only adds icons. It does not install anything. You need a Linux desktop (the icons appear in its menu and on the Desktop) and the services you want to control: Docker, Kubernetes (k3s) and the vLLM models. You only get icons for what is already installed.
+
+You also need these programs. The installer and each icon check for them and tell you what is missing. They never install anything for you.
 
 | Program | Why |
 |---|---|
@@ -46,15 +48,19 @@ You need these programs. The installer and each icon check for them and tell you
         git clone https://github.com/kodati3shrini3/sparkToolset.git
         cd sparkToolset
 
+   Keep this folder where it is. The icons point into it. If you move or delete it, the icons stop working. Move it, then run step 3 again.
+
 2. See what would be created. This changes nothing:
 
         ./installLaunchersMenuAndDesktop.sh --dry-run
 
-3. Create the icons. Only programs whose software is installed get an icon:
+3. Create the icons. Only programs whose software and tools are installed get an icon. For the others the installer prints a line starting with `skipped` and says what is missing:
 
         ./installLaunchersMenuAndDesktop.sh
 
 Options: `--no-desktop` skips the Desktop icons. `--remove` removes the icons the installer created. It only touches the icons of this toolset.
+
+Running the installer again is safe. An icon that already exists is replaced, and the old version is kept in `~/.local/state/sparkToolset/launcherBackups`. Desktop icons are marked as trusted, so a double-click starts them without an extra question.
 
 ## If your setup is different
 
